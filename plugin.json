@@ -1,0 +1,24 @@
+{
+  "id": "ocr",
+  "name": "PPT OCR",
+  "version": "0.1.0",
+  "api_version": 1,
+  "app_requires": ">=0.1,<0.3",
+  "description": "使用 RapidOCR、Tesseract 或可选 AI 能力识别课件图片文字。",
+  "requires": [
+    "processing"
+  ],
+  "python_requires": [
+    {
+      "requirement": "rapidocr-onnxruntime>=1.2",
+      "import": "rapidocr_onnxruntime",
+      "label": "RapidOCR",
+      "optional": false
+    }
+  ],
+  "execution": "in_process",
+  "entry": "plugin.py",
+  "route_prefix": null,
+  "rpc_api_version": null,
+  "rpc_permissions": []
+}

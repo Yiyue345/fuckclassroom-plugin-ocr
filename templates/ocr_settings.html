@@ -1,0 +1,15 @@
+{% import "ui/components.html" as ui %}
+{% call ui.section("ocr", "PPT OCR", "配置课件图片识别、并发与缓存。") %}
+    <div class="field-row">
+      {{ ui.select("ocr_engine", "OCR 引擎", settings.ocr_engine, ["auto", "rapidocr", "tesseract", "ai"]) }}
+      {{ ui.field("ocr_max_images", "最多识别图片", settings.ocr_max_images, type="number", min="1", step="1") }}
+    </div>
+    <div class="field-row">
+      {{ ui.field("ocr_workers", "OCR 并发 Worker", settings.ocr_workers, type="number", min="1", max="16", step="1") }}
+      {{ ui.field("ocr_onnx_threads", "每 Worker ONNX 线程", settings.ocr_onnx_threads, type="number", min="1", max="16", step="1") }}
+    </div>
+    {{ ui.field("ocr_max_side", "OCR 图片最大边", settings.ocr_max_side, type="number", min="512", max="4096", step="64") }}
+    {{ ui.field("ocr_model", "视觉 OCR 模型", settings.ocr_model, hint="仅在 OCR 引擎选择 ai 时使用；AI 连接信息由 AI 总结插件或环境变量提供。") }}
+    {{ ui.checkbox("ocr_cache_enabled", "启用 OCR 持久缓存", settings.ocr_cache_enabled) }}
+    {{ ui.checkbox("ocr_use_angle_cls", "启用 180° 文字方向分类", settings.ocr_use_angle_cls) }}
+{% endcall %}

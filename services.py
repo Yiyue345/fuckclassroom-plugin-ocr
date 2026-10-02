@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import mimetypes
 import re
 import shutil
@@ -20,6 +21,74 @@ from .engine import (
 from fuckclassroom.core.plugins import PluginContext
 from fuckclassroom.plugins.process_runtime import ProcessPluginError, ProcessPluginHost
 from fuckclassroom.plugins.rpc import PLUGIN_RPC_API_VERSION
+
+
+_RPC_IMAGE_TARGET_BYTES = 2_500_000
+_RPC_IMAGE_MIN_SIDE = 768
+_RPC_JPEG_QUALITIES = (90, 82, 74, 66)
+
+
+def _prepare_rpc_image(
+    image_bytes: bytes,
+    image_name: str,
+    *,
+    max_side: int,
+) -> tuple[bytes, str]:
+    """Keep image RPC payloads safely below the 4 MiB JSON message limit."""
+    if len(image_bytes) <= _RPC_IMAGE_TARGET_BYTES:
+        return image_bytes, image_name
+
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(image_bytes)) as source:
+            source.load()
+            image = source.copy()
+
+        if "A" in image.getbands():
+            background = Image.new("RGB", image.size, "white")
+            background.paste(image, mask=image.getchannel("A"))
+            image = background
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+
+        resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+        bounded_side = max(_RPC_IMAGE_MIN_SIDE, int(max_side))
+        if max(image.size) > bounded_side:
+            image.thumbnail((bounded_side, bounded_side), resampling)
+
+        prepared_name = f"{Path(image_name).stem or 'image'}.jpg"
+        for quality in _RPC_JPEG_QUALITIES:
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=quality, optimize=True)
+            prepared = output.getvalue()
+            if len(prepared) <= _RPC_IMAGE_TARGET_BYTES:
+                return prepared, prepared_name
+
+        current = image
+        while max(current.size) > _RPC_IMAGE_MIN_SIDE:
+            width, height = current.size
+            scale = max(_RPC_IMAGE_MIN_SIDE / max(width, height), 0.82)
+            next_size = (
+                max(1, int(width * scale)),
+                max(1, int(height * scale)),
+            )
+            if next_size == current.size:
+                break
+            current = current.resize(next_size, resampling)
+            output = io.BytesIO()
+            current.save(output, format="JPEG", quality=74, optimize=True)
+            prepared = output.getvalue()
+            if len(prepared) <= _RPC_IMAGE_TARGET_BYTES:
+                return prepared, prepared_name
+    except Exception as exc:
+        raise OcrError(
+            "OCR 图片超过 RPC 安全上限，且无法完成缩放/压缩"
+        ) from exc
+
+    raise OcrError(
+        "OCR 图片压缩后仍超过 RPC 安全上限，请降低 OCR 图片最大边设置"
+    )
 
 
 class OcrService:
@@ -134,8 +203,9 @@ class OcrService:
 
 
 class OcrProcessProxy:
-    def __init__(self, host: ProcessPluginHost) -> None:
+    def __init__(self, host: ProcessPluginHost, *, max_side: int = 1600) -> None:
         self.host = host
+        self.max_side = max_side
 
     def ocr_image(
         self,
@@ -145,12 +215,17 @@ class OcrProcessProxy:
         stats: dict[str, int] | None = None,
         stats_lock: threading.Lock | None = None,
     ) -> str:
+        rpc_image_bytes, rpc_image_name = _prepare_rpc_image(
+            image_bytes,
+            image_name,
+            max_side=self.max_side,
+        )
         try:
             payload = self.host.call_sync(
                 "ocr.image",
                 {
-                    "image_b64": base64.b64encode(image_bytes).decode("ascii"),
-                    "image_name": image_name,
+                    "image_b64": base64.b64encode(rpc_image_bytes).decode("ascii"),
+                    "image_name": rpc_image_name,
                 },
                 timeout=300,
             )
@@ -193,7 +268,10 @@ def setup_services(context: PluginContext) -> None:
         rpc_permissions=("core.plugins.has", "ai_summary.ocr.image"),
     )
     context.services.add("ocr_process_host", host)
-    context.services.add("ocr_service", OcrProcessProxy(host))
+    context.services.add(
+        "ocr_service",
+        OcrProcessProxy(host, max_side=context.config.ocr_max_side),
+    )
 
 
 async def startup(context: PluginContext) -> None:

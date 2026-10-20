@@ -6,6 +6,7 @@ import io
 import mimetypes
 import re
 import shutil
+import tempfile
 import threading
 from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
@@ -24,6 +25,7 @@ from fuckclassroom.plugins.rpc import PLUGIN_RPC_API_VERSION
 
 
 _RPC_IMAGE_TARGET_BYTES = 2_500_000
+_LOCAL_IMAGE_MAX_BYTES = 100 * 1024 * 1024
 _RPC_IMAGE_MIN_SIDE = 768
 _RPC_JPEG_QUALITIES = (90, 82, 74, 66)
 
@@ -215,22 +217,35 @@ class OcrProcessProxy:
         stats: dict[str, int] | None = None,
         stats_lock: threading.Lock | None = None,
     ) -> str:
-        rpc_image_bytes, rpc_image_name = _prepare_rpc_image(
-            image_bytes,
-            image_name,
-            max_side=self.max_side,
-        )
+        if len(image_bytes) > _LOCAL_IMAGE_MAX_BYTES:
+            raise OcrError("本地 OCR 图片超过 100 MB 限制")
+        temporary_path: Path | None = None
+        payload_params = {"image_name": image_name}
         try:
+            if len(image_bytes) > _RPC_IMAGE_TARGET_BYTES:
+                # The local OCR worker shares the host's data directory.
+                # Pass a private temporary file path instead of a lossy JPEG.
+                root = Path(self.host.data_dir) / "ocr_rpc_inputs"
+                root.mkdir(parents=True, exist_ok=True, mode=0o700)
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", dir=root, prefix="ocr-", suffix=".bin",
+                    delete=False,
+                ) as file:
+                    temporary_path = Path(file.name)
+                    file.write(image_bytes)
+                payload_params["image_path"] = str(temporary_path)
+            else:
+                payload_params["image_b64"] = base64.b64encode(image_bytes).decode("ascii")
             payload = self.host.call_sync(
                 "ocr.image",
-                {
-                    "image_b64": base64.b64encode(rpc_image_bytes).decode("ascii"),
-                    "image_name": rpc_image_name,
-                },
+                payload_params,
                 timeout=300,
             )
         except ProcessPluginError as exc:
             raise OcrError(str(exc)) from exc
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
         if not isinstance(payload, dict):
             raise OcrError("OCR 子进程返回格式错误")
         deltas = payload.get("stats")

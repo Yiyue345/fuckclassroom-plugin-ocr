@@ -108,7 +108,7 @@ class LosslessWorkerIpcTests(unittest.TestCase):
         seen = {}
 
         class FakeOcrService:
-            def ocr_image(self, image_bytes, image_name, *, stats):
+            def ocr_image(self, image_bytes, image_name, *, stats, force=False):
                 seen["image"] = image_bytes
                 seen["name"] = image_name
                 stats["inferences"] += 1
@@ -150,7 +150,7 @@ class LosslessWorkerIpcTests(unittest.TestCase):
         worker = _worker(services)
         seen = {}
         worker["_get_service"] = lambda context: SimpleNamespace(
-            ocr_image=lambda payload, image_name, *, stats: (
+            ocr_image=lambda payload, image_name, *, stats, force=False: (
                 seen.update(image=payload, name=image_name) or "OK"
             )
         )

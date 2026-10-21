@@ -106,12 +106,13 @@ class OcrService:
         *,
         stats: dict[str, int] | None = None,
         stats_lock: threading.Lock | None = None,
+        force: bool = False,
     ) -> str:
         engine = self.config.ocr_engine
         if engine in ("auto", "rapidocr"):
             try:
                 cache_path = self._rapidocr_cache_path(image_bytes)
-                if cache_path is not None and cache_path.exists():
+                if not force and cache_path is not None and cache_path.exists():
                     try:
                         text = cache_path.read_text(encoding="utf-8")
                     except OSError:
@@ -216,11 +217,12 @@ class OcrProcessProxy:
         *,
         stats: dict[str, int] | None = None,
         stats_lock: threading.Lock | None = None,
+        force: bool = False,
     ) -> str:
         if len(image_bytes) > _LOCAL_IMAGE_MAX_BYTES:
             raise OcrError("本地 OCR 图片超过 100 MB 限制")
         temporary_path: Path | None = None
-        payload_params = {"image_name": image_name}
+        payload_params = {"image_name": image_name, "force": bool(force)}
         try:
             if len(image_bytes) > _RPC_IMAGE_TARGET_BYTES:
                 # The local OCR worker shares the host's data directory.

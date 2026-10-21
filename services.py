@@ -164,23 +164,50 @@ class OcrService:
         if engine in ("auto", "rapidocr"):
             try:
                 import rapidocr_onnxruntime  # noqa: F401
-
                 return True
             except ImportError:
                 if engine == "rapidocr":
-                    warnings.append("已跳过 OCR：缺少 rapidocr-onnxruntime。")
+                    warnings.append(
+                        "RapidOCR 不可用：缺少 rapidocr-onnxruntime。"
+                        "请安装对应 Python 依赖，或在「设置 → PPT OCR」选择其他引擎。"
+                    )
                     return False
-        if engine in ("auto", "tesseract") and shutil.which("tesseract"):
-            return True
-        if engine in ("auto", "ai") and self.config.ai_api_key:
-            if self._ai_ocr is not None and (
+        if engine in ("auto", "tesseract"):
+            if shutil.which("tesseract"):
+                return True
+            if engine == "tesseract":
+                warnings.append(
+                    "Tesseract 不可用：找不到 tesseract 可执行程序。"
+                    "请安装 Tesseract 并将其加入 PATH，或更换 OCR 引擎。"
+                )
+                return False
+        if engine in ("auto", "ai"):
+            if not self.config.ai_api_key:
+                if engine == "ai":
+                    warnings.append(
+                        "AI OCR 不可用：尚未配置 AI API Key。"
+                        "请在设置中填写并启用 AI 总结插件，或更换 OCR 引擎。"
+                    )
+                    return False
+            elif self._ai_ocr is not None and (
                 self._ai_available is None or bool(self._ai_available())
             ):
                 return True
-            if engine == "ai":
-                warnings.append("已跳过 OCR：AI 总结插件未启用。")
+            elif engine == "ai":
+                warnings.append(
+                    "AI OCR 不可用：AI 总结插件未启用或 OCR 服务未就绪。"
+                    "请检查插件管理中的 AI 总结状态。"
+                )
                 return False
-        warnings.append("已跳过 OCR：未找到可用 OCR 引擎。")
+        if engine == "auto":
+            warnings.append(
+                "自动 OCR 未找到可用引擎：请检查 RapidOCR 依赖、Tesseract 安装，"
+                "或配置 AI API Key 并启用 AI 总结插件。"
+            )
+        else:
+            warnings.append(
+                f"OCR 引擎「{engine}」不可用，请在「设置 → PPT OCR」检查引擎配置。"
+            )
         return False
 
     def _rapidocr_cache_path(self, image_bytes: bytes) -> Path | None:

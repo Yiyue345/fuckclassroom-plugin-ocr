@@ -80,6 +80,7 @@ def handle_call(method, params, context, progress):
             image_bytes,
             image_name,
             stats=stats,
+            force=params.get("force") is True,
         )
         return {"text": text, "stats": stats}
     raise ValueError(f"未知 OCR Worker 方法：{method}")
